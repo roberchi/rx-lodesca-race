@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
 #include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
 #include <Servo.h>
 #include "wificredential.h"
 
@@ -9,8 +9,10 @@
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
-// Create AsyncWebServer object on port 80
-AsyncWebServer server(80);
+// Define UDP server
+WiFiUDP udp;
+unsigned int udpPort = 4210;  // Port for UDP communication
+char incomingPacket[255];  // Buffer for incoming packets
 
 // Define servos
 Servo steerServo;
@@ -37,33 +39,11 @@ void setup() {
   steerServo.write(90);  // Neutral position for steering
   speedServo.write(0);  // Neutral position for speed
 
-  // POST request to control servos
-  server.on("/api/control", HTTP_POST, [](AsyncWebServerRequest *request){
-    String response = "";
+  // Start the UDP server
+  udp.begin(udpPort);
+  Serial.printf("UDP server started at IP %s on port %d\n", WiFi.localIP().toString().c_str(), udpPort);
 
-    if (request->hasParam("steer", true)) {
-      String steerValue = request->getParam("steer", true)->value();
-      int steerAngle = constrain(steerValue.toInt(), 0, 180); // Constrain to valid servo range
-      steerServo.write(steerAngle);
-      response += "Steer angle set to: " + String(steerAngle) + "\n";
-    }
 
-    if (request->hasParam("speed", true)) {
-      String speedValue = request->getParam("speed", true)->value();
-      int speedValueInt = constrain(speedValue.toInt(), 0, 180); // Constrain to valid servo range
-      speedServo.write(speedValueInt);
-      response += "Speed set to: " + String(speedValueInt) + "\n";
-    }
-
-    if (response == "") {
-      response = "No valid parameters provided. Use 'steer' and/or 'speed'.";
-    }
-
-    request->send(200, "text/plain", response);
-  });
-
-  // Start server
-  server.begin();
 }
 
 void loop() {
@@ -71,6 +51,35 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected. Attempting to reconnect...");
     connectToWiFi();
+  }
+
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    // Read the packet into the buffer
+    int len = udp.read(incomingPacket, 255);
+    if (len > 0) {
+      incomingPacket[len] = 0;
+    }
+    Serial.printf("Received packet: %s\n", incomingPacket);
+
+    // Parse the received packet
+    String packetStr = String(incomingPacket);
+    int steerIndex = packetStr.indexOf("steer=");
+    int speedIndex = packetStr.indexOf("speed=");
+
+    if (steerIndex != -1) {
+      String steerValue = packetStr.substring(steerIndex + 6, packetStr.indexOf('&', steerIndex));
+      int steerAngle = constrain(steerValue.toInt(), 0, 180); // Constrain to valid servo range
+      steerServo.write(steerAngle);
+      Serial.printf("Steer angle set to: %d\n", steerAngle);
+    }
+
+    if (speedIndex != -1) {
+      String speedValue = packetStr.substring(speedIndex + 6);
+      int speedValueInt = constrain(speedValue.toInt(), 0, 180); // Constrain to valid servo range
+      speedServo.write(speedValueInt);
+      Serial.printf("Speed set to: %d\n", speedValueInt);
+    }
   }
 }
 
