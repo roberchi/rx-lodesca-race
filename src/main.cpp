@@ -13,6 +13,7 @@ const char* password = WIFI_PASSWORD;
 WiFiUDP udp;
 unsigned int udpPort = 4210;  // Port for UDP communication
 char incomingPacket[255];  // Buffer for incoming packets
+unsigned long lastProcessedTick = 0;  // Store the last processed tick
 
 // Define servos
 Servo steerServo;
@@ -23,6 +24,7 @@ const int steerPin = D1; // Change to your steering servo pin
 const int speedPin = D2; // Change to your speed control servo pin
 
 void connectToWiFi();
+void processUDPMessage();
 
 void setup() {
   // Start Serial Monitor
@@ -53,34 +55,8 @@ void loop() {
     connectToWiFi();
   }
 
-  int packetSize = udp.parsePacket();
-  if (packetSize) {
-    // Read the packet into the buffer
-    int len = udp.read(incomingPacket, 255);
-    if (len > 0) {
-      incomingPacket[len] = 0;
-    }
-    Serial.printf("Received packet: %s\n", incomingPacket);
-
-    // Parse the received packet
-    String packetStr = String(incomingPacket);
-    int steerIndex = packetStr.indexOf("steer=");
-    int speedIndex = packetStr.indexOf("speed=");
-
-    if (steerIndex != -1) {
-      String steerValue = packetStr.substring(steerIndex + 6, packetStr.indexOf('&', steerIndex));
-      int steerAngle = constrain(steerValue.toInt(), 0, 180); // Constrain to valid servo range
-      steerServo.write(steerAngle);
-      Serial.printf("Steer angle set to: %d\n", steerAngle);
-    }
-
-    if (speedIndex != -1) {
-      String speedValue = packetStr.substring(speedIndex + 6);
-      int speedValueInt = constrain(speedValue.toInt(), 0, 180); // Constrain to valid servo range
-      speedServo.write(speedValueInt);
-      Serial.printf("Speed set to: %d\n", speedValueInt);
-    }
-  }
+  // Process incoming UDP messages
+  processUDPMessage();
 }
 
 void connectToWiFi() {
@@ -100,5 +76,49 @@ void connectToWiFi() {
     Serial.println(WiFi.localIP());
   } else {
     Serial.println("Failed to connect to WiFi");
+  }
+}
+
+// Process incoming UDP messages
+// udp data format: tick|steer|speed
+void processUDPMessage(){
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    // Read the packet into the buffer
+    int len = udp.read(incomingPacket, 255);
+    if (len > 0) {
+      incomingPacket[len] = 0;
+    }
+    Serial.printf("Received packet: %s\n", incomingPacket);
+
+    // Parse the received packet
+    String packetStr = String(incomingPacket);
+    int firstDelim = packetStr.indexOf('|');
+    int secondDelim = packetStr.indexOf('|', firstDelim + 1);
+
+    if (firstDelim != -1 && secondDelim != -1) {
+      String tickStr = packetStr.substring(0, firstDelim);
+      String steerStr = packetStr.substring(firstDelim + 1, secondDelim);
+      String speedStr = packetStr.substring(secondDelim + 1);
+
+      unsigned long currentTick = tickStr.toInt();
+      int steerValue = steerStr.toInt();
+      int speedValue = speedStr.toInt();
+
+      // Check if the received tick is newer than the last processed tick
+      if (currentTick > lastProcessedTick) {
+        lastProcessedTick = currentTick;
+
+        // Update the servos
+        int steerAngle = constrain(steerValue, 0, 180); // Constrain to valid servo range
+        int speedValueInt = constrain(speedValue, 0, 180); // Constrain to valid servo range
+        steerServo.write(steerAngle);
+        speedServo.write(speedValueInt);
+
+        Serial.printf("Processed packet with tick: %lu, steer: %d, speed: %d\n", currentTick, steerAngle, speedValueInt);
+      } else {
+        Serial.printf("Skipped outdated packet with tick: %lu\n", currentTick);
+      }
+    }
   }
 }

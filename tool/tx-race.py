@@ -1,5 +1,7 @@
 import pygame
 import socket
+import time
+from datetime import datetime, timedelta
 
 
 # get IP and port from the ESP32 from args
@@ -14,6 +16,16 @@ server_port = int(sys.argv[2])
 # Create a UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+time_24_hours_ago = datetime.now() - timedelta(hours=24)
+def ticks_ms():
+    # Get the current time
+    now = datetime.now()
+
+    # Calculate the difference between now and 24 hours ago
+    time_difference = now - time_24_hours_ago
+
+    # Convert the difference to milliseconds
+    return int(time_difference.total_seconds() * 1000)
 
 # Initialize Pygame and the joystick module
 pygame.init()
@@ -47,16 +59,17 @@ else:
         # convert axis valui from -1 to 1 to 0 to 180 where 90 is 0
         steer = int(90 + steer * 90)
         speed = int(90 + speed * 90)
-      
+        ticks = ticks_ms()
+
         # wait 100 ms
-        pygame.time.wait(100)
+        pygame.time.wait(50)
       
         # send only if steer or spee is changed
         if(last_steer != steer or last_speed != speed):
             # Data to send
-            message = f"steer={steer}&speed={speed}"
+            message = f"{ticks}|{steer}|{speed}"
             # Print the captured data
-            print(f"Seed: {speed}, Steer: {steer}")
+            print(f"Ticks: {ticks} => Seed={speed} Steer={steer}")
 
             # Send the message to the server
             sock.sendto(message.encode(), (server_ip, server_port))
