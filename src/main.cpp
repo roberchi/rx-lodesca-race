@@ -2,7 +2,9 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <Servo.h>
+#include <WiFiManager.h>
 #include "wificredential.h"
+
 
 
 // Replace with your network credentials
@@ -19,19 +21,26 @@ unsigned long lastProcessedTick = 0;  // Store the last processed tick
 Servo steerServo;
 Servo speedServo;
 
+// Initialize WiFiManager
+WiFiManager wifiManager;
+
 // Define GPIO pins for the servos
 const int steerPin = D1; // Change to your steering servo pin
 const int speedPin = D2; // Change to your speed control servo pin
 
-void connectToWiFi();
+// functions headers
+void RiconnectToWiFi();
 void processUDPMessage();
+void startWiFiManger();
 
+// Setup function
 void setup() {
   // Start Serial Monitor
   Serial.begin(9600);
 
+
   // Connect to Wi-Fi
-  connectToWiFi();
+  startWiFiManger();
 
   // Attach servos to their pins
   steerServo.attach(steerPin);
@@ -52,15 +61,42 @@ void loop() {
   // Check if Wi-Fi is still connected
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected. Attempting to reconnect...");
-    connectToWiFi();
+    RiconnectToWiFi();
   }
 
   // Process incoming UDP messages
   processUDPMessage();
 }
 
-void connectToWiFi() {
-  WiFi.begin(ssid, password);
+// Start WiFiManager
+// Try to connect to saved WiFi credentials, if any or create a new access point
+void startWiFiManger(){
+// Try to connect to saved WiFi credentials, if any
+  // If not, start the captive portal to allow setting SSID and password
+  if (!wifiManager.autoConnect("LODESCA_RACE_RX_AP")) {
+    Serial.println("Failed to connect and hit timeout");
+    delay(3000);
+    // Reset the ESP32 if connection fails
+    ESP.restart();
+    delay(5000);
+  }  
+
+  if (WiFi.status() == WL_CONNECTED) {
+    String ssid = wifiManager.getWiFiSSID();
+    Serial.printf("Connected to WiFi %s ", ssid.c_str());
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+  }
+}
+// Riconnect to Wi-Fi
+void RiconnectToWiFi() {
+
+  // Connect to Wi-Fi
+  String ssid = wifiManager.getWiFiSSID();
+  String password = wifiManager.getWiFiPass();
+  Serial.printf("Connecting to %s ", ssid.c_str());
+  WiFi.begin(ssid.c_str(), password.c_str());
+
 
   // Attempt to connect for 10 seconds
   unsigned long startAttemptTime = millis();
