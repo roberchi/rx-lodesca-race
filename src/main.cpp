@@ -4,6 +4,7 @@
 #include <Servo.h>
 #include <WiFiManager.h>
 #include "wificredential.h"
+#include <ESP8266mDNS.h>
 
 
 
@@ -16,6 +17,7 @@ WiFiUDP udp;
 unsigned int udpPort = 4210;  // Port for UDP communication
 char incomingPacket[255];  // Buffer for incoming packets
 unsigned long lastProcessedTick = 0;  // Store the last processed tick
+IPAddress broadcastIp(255, 255, 255, 255); // Broadcast IP address
 
 // Define servos
 Servo steerServo;
@@ -32,6 +34,7 @@ const int speedPin = D2; // Change to your speed control servo pin
 void RiconnectToWiFi();
 void processUDPMessage();
 void startWiFiManger();
+void broadcastIP();
 
 // Setup function
 void setup() {
@@ -41,6 +44,16 @@ void setup() {
 
   // Connect to Wi-Fi
   startWiFiManger();
+
+  // Start mDNS responder
+  const char* hostname = "lodesca_rx";
+  WiFi.hostname(hostname);
+  if (MDNS.begin(hostname)) {
+      Serial.printf("mDNS responder started at hostname %s.local\n", hostname);
+      MDNS.addService("rx", "udp", 4210);
+  }
+  
+  broadcastIP();
 
   // Attach servos to their pins
   steerServo.attach(steerPin);
@@ -64,6 +77,12 @@ void loop() {
     RiconnectToWiFi();
   }
 
+  // send broadcastIP() every 2 minutes
+  static unsigned long lastBroadcast = 0;
+  if (millis() - lastBroadcast > 120000) {
+    broadcastIP();
+    lastBroadcast = millis();
+  }
   // Process incoming UDP messages
   processUDPMessage();
 }
@@ -71,7 +90,7 @@ void loop() {
 // Start WiFiManager
 // Try to connect to saved WiFi credentials, if any or create a new access point
 void startWiFiManger(){
-// Try to connect to saved WiFi credentials, if any
+  // Try to connect to saved WiFi credentials, if any
   // If not, start the captive portal to allow setting SSID and password
   if (!wifiManager.autoConnect("LODESCA_RACE_RX_AP")) {
     Serial.println("Failed to connect and hit timeout");
@@ -81,12 +100,23 @@ void startWiFiManger(){
     delay(5000);
   }  
 
+
+  
   if (WiFi.status() == WL_CONNECTED) {
     String ssid = wifiManager.getWiFiSSID();
     Serial.printf("Connected to WiFi %s ", ssid.c_str());
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
   }
+}
+
+void broadcastIP(){
+  String message = String(ESP.getChipId()) + "|" + WiFi.hostname() + "|" + WiFi.localIP().toString();
+
+  // Send the message over UDP to the broadcast address
+  udp.beginPacket(broadcastIp, udpPort);
+  udp.write(message.c_str());
+  udp.endPacket();
 }
 // Riconnect to Wi-Fi
 void RiconnectToWiFi() {
