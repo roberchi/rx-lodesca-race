@@ -15,6 +15,7 @@ const char* password = WIFI_PASSWORD;
 // Define UDP server
 WiFiUDP udp;
 unsigned int udpPort = 4210;  // Port for UDP communication
+unsigned int udpDiscoveryPort = 4211;  // Port for UDP discovery
 char incomingPacket[255];  // Buffer for incoming packets
 unsigned long lastProcessedTick = 0;  // Store the last processed tick
 IPAddress broadcastIp(255, 255, 255, 255); // Broadcast IP address
@@ -31,10 +32,10 @@ const int steerPin = D1; // Change to your steering servo pin
 const int speedPin = D2; // Change to your speed control servo pin
 
 // functions headers
-void RiconnectToWiFi();
+void riconnectToWiFi();
 void processUDPMessage();
 void startWiFiManger();
-void broadcastIP();
+void broadcastDiscovery();
 
 // Setup function
 void setup() {
@@ -50,10 +51,12 @@ void setup() {
   WiFi.hostname(hostname);
   if (MDNS.begin(hostname)) {
       Serial.printf("mDNS responder started at hostname %s.local\n", hostname);
-      MDNS.addService("rx", "udp", 4210);
+      MDNS.addService("rx", "udp", udpPort);
+      MDNS.addService("discovery", "udp", udpDiscoveryPort);
   }
   
-  broadcastIP();
+  Serial.printf("UDP discovery broadcast from IP %s on port %d\n", WiFi.localIP().toString().c_str(), udpDiscoveryPort);
+  broadcastDiscovery();
 
   // Attach servos to their pins
   steerServo.attach(steerPin);
@@ -66,21 +69,19 @@ void setup() {
   // Start the UDP server
   udp.begin(udpPort);
   Serial.printf("UDP server started at IP %s on port %d\n", WiFi.localIP().toString().c_str(), udpPort);
-
-
 }
 
 void loop() {
   // Check if Wi-Fi is still connected
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected. Attempting to reconnect...");
-    RiconnectToWiFi();
+    riconnectToWiFi();
   }
 
   // send broadcastIP() every 2 minutes
   static unsigned long lastBroadcast = 0;
   if (millis() - lastBroadcast > 120000) {
-    broadcastIP();
+    broadcastDiscovery();
     lastBroadcast = millis();
   }
   // Process incoming UDP messages
@@ -110,16 +111,16 @@ void startWiFiManger(){
   }
 }
 
-void broadcastIP(){
-  String message = String(ESP.getChipId()) + "|" + WiFi.hostname() + "|" + WiFi.localIP().toString();
+void broadcastDiscovery(){
+  String message = String(ESP.getChipId()) + "|" + WiFi.hostname() + "|" + WiFi.localIP().toString() + "|" + String(udpPort); 
 
   // Send the message over UDP to the broadcast address
-  udp.beginPacket(broadcastIp, udpPort);
+  udp.beginPacket(broadcastIp, udpDiscoveryPort);
   udp.write(message.c_str());
   udp.endPacket();
 }
 // Riconnect to Wi-Fi
-void RiconnectToWiFi() {
+void riconnectToWiFi() {
 
   // Connect to Wi-Fi
   String ssid = wifiManager.getWiFiSSID();
@@ -155,8 +156,9 @@ void processUDPMessage(){
     if (len > 0) {
       incomingPacket[len] = 0;
     }
+#ifdef DEBUG
     Serial.printf("Received packet: %s\n", incomingPacket);
-
+#endif
     // Parse the received packet
     String packetStr = String(incomingPacket);
     int firstDelim = packetStr.indexOf('|');
@@ -180,10 +182,13 @@ void processUDPMessage(){
         int speedValueInt = constrain(speedValue, 0, 180); // Constrain to valid servo range
         steerServo.write(steerAngle);
         speedServo.write(speedValueInt);
-
+#ifdef DEBUG
         Serial.printf("Processed packet with tick: %lu, steer: %d, speed: %d\n", currentTick, steerAngle, speedValueInt);
+#endif
       } else {
+#ifdef DEBUG
         Serial.printf("Skipped outdated packet with tick: %lu\n", currentTick);
+#endif
       }
     }
   }
